@@ -15,6 +15,7 @@ from console_util import fmt_row
 import os
 import shutil
 import time
+from collections import deque
 def start(callback, args, workerseed, rank, comm):
     env = gym.make(args.task)
     env.seed(workerseed)
@@ -47,14 +48,17 @@ def start(callback, args, workerseed, rank, comm):
     sub_policies = [SubPolicy(name="sub_policy_%i" % x, ob=ob, ac_space=ac_space, hid_size=256, num_hid_layers=2) for x in range(num_subs)]
     old_sub_policies = [SubPolicy(name="old_sub_policy_%i" % x, ob=ob, ac_space=ac_space, hid_size=256, num_hid_layers=2) for x in range(num_subs)]
 
-    learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=1000)
+    learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, savename,logdir, clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=1000)
     # learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-5, optim_batchsize=64)
     
     rollout = rollouts.traj_segment_generator(policy, sub_policies, env, macro_duration, num_rollouts, stochastic=True, args=args)
     
-    logger_loss_name = ["mini_ep","glo_rew","glo_len","loc_rew","sub_rate","time"]
+    logger_loss_name = ["mini_ep","glo_rew","loc_rew","sub_rate","time"]
     start_time = time.time()
-
+    real_goal = 0
+    gmean_final = 0
+    sub_rate_final = None
+    total_rewbuffer = deque()
     for x in range(10000):
         callback(x,savename)
         if x == 0:
@@ -67,7 +71,7 @@ def start(callback, args, workerseed, rank, comm):
 
         env.env.randomizeCorrect()
         shared_goal = comm.bcast(env.env.realgoal, root=0)
-        env.env.realgoal = shared_goal
+        real_goal =env.env.realgoal = shared_goal
 
         # print("It is iteration %d so i'm changing the goal to %s" % (x, env.env.realgoal))
         logger.log("It is iteration %d so i'm changing the goal to %s" % (x, env.env.realgoal))
@@ -92,6 +96,10 @@ def start(callback, args, workerseed, rank, comm):
             # train phi
             test_seg = rollouts.prepare_allrolls(allrolls, macro_duration, 0.99, 0.98, num_subpolicies=num_subs)
             learner.updateSubPolicies(test_seg, num_batches, (mini_ep >= warmup_time))
+            
+            gmean_final=gmean
+            sub_rate_final =sub_rate
+            
             # learner.updateSubPolicies(test_seg,
             # log
             # print(("%d: global: %s, local: %s" % (mini_ep, gmean, lmean)))
@@ -101,3 +109,6 @@ def start(callback, args, workerseed, rank, comm):
                 totalmeans.append(gmean)
                 with open('outfile'+str(x)+'.pickle', 'wb') as fp:
                     pickle.dump(totalmeans, fp)
+        total_rewbuffer.append(gmean_final)
+        total_rew = np.mean(total_rewbuffer)
+        # learner.add_total_info(x,real_goal,total_rew,gmean_final,sub_rate_final)

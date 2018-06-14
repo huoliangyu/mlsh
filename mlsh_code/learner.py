@@ -10,7 +10,7 @@ from collections import deque
 from dataset import Dataset
 
 class Learner:
-    def __init__(self, env, policy, old_policy, sub_policies, old_sub_policies, comm, clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=64):
+    def __init__(self, env, policy, old_policy, sub_policies, old_sub_policies, comm, savename,logdir,clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=64):
         self.policy = policy
         self.clip_param = clip_param
         self.entcoeff = entcoeff
@@ -19,6 +19,8 @@ class Learner:
         self.optim_batchsize = optim_batchsize
         self.num_subpolicies = len(sub_policies)
         self.sub_policies = sub_policies
+        self.savename = savename
+        self.logdir = logdir
         ob_space = env.observation_space
         ac_space = env.action_space
 
@@ -57,6 +59,8 @@ class Learner:
         self.master_adam.sync()
         for i in range(self.num_subpolicies):
             self.adams[i].sync()
+
+        # self.add_master_record()
 
     def nograd(self, var_list):
         return tf.concat(axis=0, values=[
@@ -158,5 +162,33 @@ class Learner:
         for x in num_of_sub:
             rate += "{}:".format(x)
         return rate[:len(rate)-1]
+    def add_master_record(self):
+        with open(self.logdir+"/master.txt","a") as f:
+            f.write("iteration\tgoal\ttotal_reward\tcur_reward\tsub_rate\n")
+        # add to summary
+        self.summary_placeholder_list=[None for _ in range(self.num_subpolicies*2)]
+        for x in range(self.num_subpolicies):
+            #self.total_rew_0
+            self.summary_placeholder_list[x]  = tf.placeholder(dtype=tf.float32, shape=[],name = "goal_{}_total".format(x))
+            tf.summary.scalar("total_rew_goal_{}".format(x), self.summary_placeholder_list[x],collections=["total_{}".format(x)])
+            #self.cur_rew_0
+            print (len( self.summary_placeholder_list))
+            print ("x is {}".format(x+self.num_subpolicies))
+            self.summary_placeholder_list[x+self.num_subpolicies]=tf.placeholder(dtype=tf.float32, shape=[],name = "goal_{}_cur".format(x))
+            tf.summary.scalar("cur_rew_goal_{}".format(x), self.summary_placeholder_list[x+self.num_subpolicies],collections=["total_{}".format(x)])
+        
+        tbdir = "./savedir/tensorboad"
+        self.tf_writer = tf.summary.FileWriter(tbdir + '/{}'.format(self.savename))
+    def add_total_info(self,it,real_goal,rew_total,rew_cur,sub_rate):
+        merge_op=tf.summary.merge_all(key="total_{}".format(real_goal))
+        total_rew_placeholder =self.summary_placeholder_list[real_goal]
+        cur_rew_placeholder = self.summary_placeholder_list[real_goal+self.num_subpolicies]
+        
+        summary = tf.get_default_session().run([merge_op],feed_dict={total_rew_placeholder:rew_total,cur_rew_placeholder:rew_cur})[0]
+        
+        self.tf_writer.add_summary(summary,it )
+        self.tf_writer.flush()
+        with open(self.logdir+"/master.txt","a") as f:
+            f.write("{}\t{}\t{}\t{}\t{}\n".format(it,real_goal, rew_total,rew_cur,sub_rate))
 def flatten_lists(listoflists):
     return [el for list_ in listoflists for el in list_]
