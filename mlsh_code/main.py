@@ -12,6 +12,9 @@ parser.add_argument('--force_subpolicy', type=int)
 parser.add_argument('--replay', type=str)
 parser.add_argument('-s', action='store_true')
 parser.add_argument('--continue_iter', type=str)
+parser.add_argument('--restore',default = "False",type=str)
+
+
 args = parser.parse_args()
 
 # python main.py --task MovementBandits-v0 --num_subs 2 --macro_duration 10 --num_rollouts 1000 --warmup_time 60 --train_time 1 --replay True test
@@ -39,19 +42,28 @@ def str2bool(v):
 
 replay = str2bool(args.replay)
 args.replay = str2bool(args.replay)
-
+restore = str2bool(args.restore)
+args.restore = str2bool(args.restore)
 RELPATH = osp.join(args.savename)
 LOGDIR = osp.join('/root/results' if sys.platform.startswith('linux') else '/tmp', RELPATH)
 
-def callback(it):
+# def callback(it):
+#     if MPI.COMM_WORLD.Get_rank()==0:
+#         if it % 5 == 0 and it > 3 and not replay:
+#             fname = osp.join("savedir/", 'checkpoints', '%.5i'%it)
+#             U.save_state(fname)
+#     if it == 0 and args.continue_iter is not None:
+#         fname = osp.join("savedir/"+args.savename+"/checkpoints/", str(args.continue_iter))
+#         U.load_state(fname)
+#         pass
+def callback(it,savename =args.savename, var_list=None):
     if MPI.COMM_WORLD.Get_rank()==0:
-        if it % 5 == 0 and it > 3 and not replay:
-            fname = osp.join("savedir/", 'checkpoints', '%.5i'%it)
-            U.save_state(fname)
-    if it == 0 and args.continue_iter is not None:
-        fname = osp.join("savedir/"+args.savename+"/checkpoints/", str(args.continue_iter))
+        if it % 10 == 0 and it > 3 and not replay:
+            fname = osp.join("./savedir/{}".format(savename), 'checkpoints', '%.5i'%it)
+            U.save_state(fname,var_list)
+    if it == 0 and args.continue_iter is not None and restore:    
+        fname = osp.join("./savedir/{}".format(args.savename)+"/checkpoints/", str(args.continue_iter))
         U.load_state(fname)
-        pass
 
 def train():
     num_timesteps=1e9

@@ -2,6 +2,8 @@ import numpy as np
 import math
 import time
 
+is_use_randombaseline= False
+
 def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic, args):
     replay = args.replay
     t = 0
@@ -34,7 +36,7 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
 
     # total = [0,0]
     # tt = 0
-
+    is_request = True
     while True:
         if t % macrolen == 0:
             cur_subpolicy, macro_vpred = pi.act(stochastic, ob)
@@ -46,10 +48,13 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
                 z += 1
 
         ac, vpred = sub_policies[cur_subpolicy].act(stochastic, ob)
+
+        if is_use_randombaseline:
+            ac = np.random.randint(0,9)
         # if np.random.uniform(0,1) < 0.05:
             # ac = env.action_space.sample()
 
-        if t > 0 and t % horizon == 0:
+        if (t > 0) and (t % horizon) ==0 and (is_request is True):
             # tt += 1
             # print(total)
             # total = [0,0]
@@ -67,8 +72,20 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
         if t % macrolen == 0:
             macro_acs[int(i/macrolen)] = cur_subpolicy
             macro_vpreds[int(i/macrolen)] = macro_vpred
-
-        ob, rew, new, info = env.step(ac)
+        _ob, _rew, _new, info = env.step(ac)
+        if info.get("overflow") is True:
+            is_request = False
+            continue
+        else:
+            ob = _ob
+            rew = _rew
+            new = _new
+            if rew < -5:
+                print ("---t:{}----rew:{}".format(t,rew))
+            is_request = True
+        # if abs(rew)>1000:
+        # is_overflow,rebuffing_time,rebuffing_num,r_ssim,r_jitter,r_rebuffing = info
+        # print (" t:{} rew:{} qt:{} jitter:{} freeze:{}".format(t,rew,r_ssim,r_jitter,r_rebuffing))
         rews[i] = rew
 
         if replay:

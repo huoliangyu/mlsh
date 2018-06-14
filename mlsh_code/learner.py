@@ -104,17 +104,22 @@ class Learner:
         self.policy.ob_rms.update(ob) # update running mean/std for policy
 
         self.assign_old_eq_new()
+
+        num_of_sub=[0 for _ in range(self.num_subpolicies)]
+
         for _ in range(self.optim_epochs):
             for batch in d.iterate_once(optim_batchsize):
                 g = self.master_loss(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"])
                 self.master_adam.update(g, 0.01, 1)
+                num_of_sub = self.add_num_ac(num_of_sub,batch["ac"])
 
         lrlocal = (seg["ep_lens"], seg["ep_rets"]) # local values
         listoflrpairs = MPI.COMM_WORLD.allgather(lrlocal) # list of tuples
         lens, rews = map(flatten_lists, zip(*listoflrpairs))
         logger.record_tabular("EpRewMean", np.mean(rews))
+        sub_rate = self.sub_rate(num_of_sub)
 
-        return np.mean(rews), np.mean(seg["ep_rets"])
+        return np.mean(rews), np.mean(seg["ep_rets"]),sub_rate
 
     def updateSubPolicies(self, test_segs, num_batches, optimize=True):
         for i in range(self.num_subpolicies):
@@ -144,6 +149,14 @@ class Learner:
                 for _ in range(self.optim_epochs):
                     for _ in range(num_batches):
                         self.adams[i].update(blank, self.optim_stepsize, 0)
-
+    def add_num_ac(self,num_of_sub,batch):
+        for x in range(self.num_subpolicies):
+            num_of_sub[x] += np.sum(batch==x)
+        return num_of_sub
+    def sub_rate(self,num_of_sub):
+        rate = ""
+        for x in num_of_sub:
+            rate += "{}:".format(x)
+        return rate[:len(rate)-1]
 def flatten_lists(listoflists):
     return [el for list_ in listoflists for el in list_]

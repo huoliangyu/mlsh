@@ -10,7 +10,11 @@ import rl_algs.common.tf_util as U
 import numpy as np
 # from tinkerbell import logger
 import pickle
-
+import logger
+from console_util import fmt_row
+import os
+import shutil
+import time
 def start(callback, args, workerseed, rank, comm):
     env = gym.make(args.task)
     env.seed(workerseed)
@@ -25,7 +29,13 @@ def start(callback, args, workerseed, rank, comm):
     train_time = args.train_time
 
     num_batches = 15
-
+    index = 1
+    savename = "env_{}_subs_{}_warmup_{}_train_{}_T_{}_index_{}".format(args.task,num_subs,args.warmup_time,args.train_time,args.macro_duration, index)
+    logdir = "./savedir/{}".format(savename)
+    if os.path.exists(logdir):
+        shutil.rmtree(logdir)
+    os.makedirs(logdir)
+    # num_batches = 1000
     # observation in.
     ob = U.get_placeholder(name="ob", dtype=tf.float32, shape=[None, ob_space.shape[0]])
     # ob = U.get_placeholder(name="ob", dtype=tf.float32, shape=[None, 104])
@@ -34,15 +44,19 @@ def start(callback, args, workerseed, rank, comm):
     policy = Policy(name="policy", ob=ob, ac_space=ac_space, hid_size=32, num_hid_layers=2, num_subpolicies=num_subs)
     old_policy = Policy(name="old_policy", ob=ob, ac_space=ac_space, hid_size=32, num_hid_layers=2, num_subpolicies=num_subs)
 
-    sub_policies = [SubPolicy(name="sub_policy_%i" % x, ob=ob, ac_space=ac_space, hid_size=32, num_hid_layers=2) for x in range(num_subs)]
-    old_sub_policies = [SubPolicy(name="old_sub_policy_%i" % x, ob=ob, ac_space=ac_space, hid_size=32, num_hid_layers=2) for x in range(num_subs)]
+    sub_policies = [SubPolicy(name="sub_policy_%i" % x, ob=ob, ac_space=ac_space, hid_size=256, num_hid_layers=2) for x in range(num_subs)]
+    old_sub_policies = [SubPolicy(name="old_sub_policy_%i" % x, ob=ob, ac_space=ac_space, hid_size=256, num_hid_layers=2) for x in range(num_subs)]
 
-    learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-5, optim_batchsize=64)
+    learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=1000)
+    # learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-5, optim_batchsize=64)
+    
     rollout = rollouts.traj_segment_generator(policy, sub_policies, env, macro_duration, num_rollouts, stochastic=True, args=args)
-
+    
+    logger_loss_name = ["mini_ep","glo_rew","glo_len","loc_rew","sub_rate","time"]
+    start_time = time.time()
 
     for x in range(10000):
-        callback(x)
+        callback(x,savename)
         if x == 0:
             learner.syncSubpolicies()
             print("synced subpols")
@@ -55,26 +69,34 @@ def start(callback, args, workerseed, rank, comm):
         shared_goal = comm.bcast(env.env.realgoal, root=0)
         env.env.realgoal = shared_goal
 
-        print("It is iteration %d so i'm changing the goal to %s" % (x, env.env.realgoal))
+        # print("It is iteration %d so i'm changing the goal to %s" % (x, env.env.realgoal))
+        logger.log("It is iteration %d so i'm changing the goal to %s" % (x, env.env.realgoal))
+
         mini_ep = 0 if x > 0 else -1 * (rank % 10)*int(warmup_time+train_time / 10)
         # mini_ep = 0
 
         totalmeans = []
+        logger.log(fmt_row(10, logger_loss_name))
         while mini_ep < warmup_time+train_time:
             mini_ep += 1
+            
+            running_time = time.time()-start_time
+            start_time = time.time()
             # rollout
             rolls = rollout.__next__()
             allrolls = []
             allrolls.append(rolls)
             # train theta
             rollouts.add_advantage_macro(rolls, macro_duration, 0.99, 0.98)
-            gmean, lmean = learner.updateMasterPolicy(rolls)
+            gmean, lmean,sub_rate = learner.updateMasterPolicy(rolls)
             # train phi
             test_seg = rollouts.prepare_allrolls(allrolls, macro_duration, 0.99, 0.98, num_subpolicies=num_subs)
             learner.updateSubPolicies(test_seg, num_batches, (mini_ep >= warmup_time))
             # learner.updateSubPolicies(test_seg,
             # log
-            print(("%d: global: %s, local: %s" % (mini_ep, gmean, lmean)))
+            # print(("%d: global: %s, local: %s" % (mini_ep, gmean, lmean)))
+            logger_list =[mini_ep,gmean,lmean,sub_rate ,running_time]
+            logger.log(fmt_row(10, logger_list))
             if args.s:
                 totalmeans.append(gmean)
                 with open('outfile'+str(x)+'.pickle', 'wb') as fp:
