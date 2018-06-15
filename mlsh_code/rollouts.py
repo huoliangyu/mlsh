@@ -4,7 +4,7 @@ import time
 
 is_use_randombaseline= False
 
-def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic, test_steps,args):
+def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic, test_steps,total_steps,args):
     replay = args.replay
     t = 0
     ac = env.action_space.sample()
@@ -72,12 +72,12 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
             ep_rets = []
             ep_lens = []
             x += 1
-            mini_ep+=1
+            mini_ep+=1 #times, start from 1
             if mini_ep==test_steps:
                 is_test = True
             else:
                 is_test=False
-            if mini_ep == test_steps+1:
+            if mini_ep == total_steps+1:
                 mini_ep = 0
         i = t % horizon
         obs[i] = ob

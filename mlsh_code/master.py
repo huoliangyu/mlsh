@@ -29,7 +29,7 @@ def start(callback, args, workerseed, rank, comm):
     warmup_time = args.warmup_time
     train_time = args.train_time
     test_time = 1
-
+    test_steps = warmup_time # warmup time or warmup time+train_time
     num_batches = 15
     index = 1
     savename = "env_{}_subs_{}_warmup_{}_train_{}_T_{}_index_{}".format(args.task,num_subs,args.warmup_time,args.train_time,args.macro_duration, index)
@@ -52,16 +52,19 @@ def start(callback, args, workerseed, rank, comm):
     # learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, savename,logdir, clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=1000)
     learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, savename,logdir,clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-5, optim_batchsize=64)
     
-    rollout = rollouts.traj_segment_generator(policy, sub_policies, env, macro_duration, num_rollouts, stochastic=True, test_steps=warmup_time+train_time, args=args)
+    # rollout = rollouts.traj_segment_generator(policy, sub_policies, env, macro_duration, num_rollouts, stochastic=True, test_steps=warmup_time+train_time, args=args)
+    rollout = rollouts.traj_segment_generator(policy, sub_policies, env, macro_duration, num_rollouts, stochastic=True, test_steps=test_steps, total_steps=warmup_time+train_time, args=args)
     
-    logger_loss_name = ["mini_ep","glo_rew","loc_rew","sub_rate","time"]
+    logger_loss_name = ["mini_ep","glo_rew","loc_rew","sub_rate","time","test"]
     start_time = time.time()
     real_goal = 0
     gmean_final = 0
     sub_rate_final = None
     total_rewbuffer = deque()
+    test_final = 0
+    hightest = -1000
     for x in range(10000):
-        callback(x,savename)
+        # callback(x,savename)
         if x == 0:
             learner.syncSubpolicies()
             print("synced subpols")
@@ -91,8 +94,9 @@ def start(callback, args, workerseed, rank, comm):
             rolls = rollout.__next__()
             allrolls = []
             allrolls.append(rolls)
-            if mini_ep==warmup_time+train_time+test_time:
+            if mini_ep==test_steps+test_time:
                 is_test = True
+                
             else:
                 is_test = False
             # train theta
@@ -101,14 +105,19 @@ def start(callback, args, workerseed, rank, comm):
             # train phi
             test_seg = rollouts.prepare_allrolls(allrolls, macro_duration, 0.99, 0.98, num_subpolicies=num_subs)
             learner.updateSubPolicies(test_seg, num_batches, (mini_ep >= warmup_time)and(is_test is False))
-            
+            if is_test:
+                if gmean>hightest:
+                    callback(x,savename)
+                    
             gmean_final=gmean
             sub_rate_final =sub_rate
             
             # learner.updateSubPolicies(test_seg,
             # log
             # print(("%d: global: %s, local: %s" % (mini_ep, gmean, lmean)))
-            logger_list =[mini_ep,gmean,lmean,sub_rate ,running_time]
+             
+            test_flag = hightest if is_test else 0
+            logger_list =[mini_ep,gmean,lmean,sub_rate ,running_time,test_flag]
             logger.log(fmt_row(10, logger_list))
             if args.s:
                 totalmeans.append(gmean)

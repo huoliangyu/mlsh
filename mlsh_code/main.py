@@ -58,7 +58,7 @@ LOGDIR = osp.join('/root/results' if sys.platform.startswith('linux') else '/tmp
 #         pass
 def callback(it,savename =args.savename, var_list=None):
     if MPI.COMM_WORLD.Get_rank()==0:
-        if it % 10 == 0 and it > 3 and not replay:
+        if it % 1 == 0 and it > 20 and not replay :
             fname = osp.join("./savedir/{}".format(savename), 'checkpoints', '%.5i'%it)
             U.save_state(fname,var_list)
     if it == 0 and args.continue_iter is not None and restore:    
