@@ -46,8 +46,8 @@ def start(callback, args, workerseed, rank, comm):
     policy = Policy(name="policy", ob=ob, ac_space=ac_space, hid_size=32, num_hid_layers=2, num_subpolicies=num_subs)
     old_policy = Policy(name="old_policy", ob=ob, ac_space=ac_space, hid_size=32, num_hid_layers=2, num_subpolicies=num_subs)
 
-    sub_policies = [SubPolicy(name="sub_policy_%i" % x, ob=ob, ac_space=ac_space, hid_size=64, num_hid_layers=2) for x in range(num_subs)]
-    old_sub_policies = [SubPolicy(name="old_sub_policy_%i" % x, ob=ob, ac_space=ac_space, hid_size=64, num_hid_layers=2) for x in range(num_subs)]
+    sub_policies = [SubPolicy(name="sub_policy_%i" % x, ob=ob, ac_space=ac_space, hid_size=32, num_hid_layers=2) for x in range(num_subs)]
+    old_sub_policies = [SubPolicy(name="old_sub_policy_%i" % x, ob=ob, ac_space=ac_space, hid_size=32, num_hid_layers=2) for x in range(num_subs)]
 
     # learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, savename,logdir, clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=1000)
     learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, savename,logdir,clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-5, optim_batchsize=64)
@@ -108,6 +108,7 @@ def start(callback, args, workerseed, rank, comm):
             if is_test:
                 if gmean>hightest:
                     callback(x,savename)
+                    hightest = gmean
                     
             gmean_final=gmean
             sub_rate_final =sub_rate
@@ -125,4 +126,4 @@ def start(callback, args, workerseed, rank, comm):
                     pickle.dump(totalmeans, fp)
         total_rewbuffer.append(gmean_final)
         total_rew = np.mean(total_rewbuffer)
-        # learner.add_total_info(x,real_goal,total_rew,gmean_final,sub_rate_final)
+        learner.add_total_info(x,real_goal,total_rew,gmean_final,sub_rate_final)

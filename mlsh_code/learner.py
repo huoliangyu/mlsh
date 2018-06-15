@@ -60,7 +60,7 @@ class Learner:
         for i in range(self.num_subpolicies):
             self.adams[i].sync()
 
-        # self.add_master_record()
+        self.add_master_record()
 
     def nograd(self, var_list):
         return tf.concat(axis=0, values=[
