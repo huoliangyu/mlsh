@@ -29,7 +29,6 @@ def start(callback, args, workerseed, rank, comm):
     warmup_time = args.warmup_time
     train_time = args.train_time
     test_time = 1
-    test_steps = warmup_time # warmup time or warmup time+train_time
     num_batches = 15
     index = 1
     savename = "env_{}_subs_{}_warmup_{}_train_{}_T_{}_index_{}".format(args.task,num_subs,args.warmup_time,args.train_time,args.macro_duration, index)
@@ -53,7 +52,7 @@ def start(callback, args, workerseed, rank, comm):
     learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, savename,logdir,clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-5, optim_batchsize=64)
     
     # rollout = rollouts.traj_segment_generator(policy, sub_policies, env, macro_duration, num_rollouts, stochastic=True, test_steps=warmup_time+train_time, args=args)
-    rollout = rollouts.traj_segment_generator(policy, sub_policies, env, macro_duration, num_rollouts, stochastic=True, test_steps=test_steps, total_steps=warmup_time+train_time, args=args)
+    rollout = rollouts.traj_segment_generator(policy, sub_policies, env, macro_duration, num_rollouts, stochastic=True, test_steps=warmup_time+train_time, args=args)
     
     logger_loss_name = ["mini_ep","glo_rew","loc_rew","sub_rate","time","test"]
     start_time = time.time()
@@ -94,7 +93,7 @@ def start(callback, args, workerseed, rank, comm):
             rolls = rollout.__next__()
             allrolls = []
             allrolls.append(rolls)
-            if mini_ep==test_steps+test_time:
+            if mini_ep==warmup_time+train_time+test_time:
                 is_test = True
                 
             else:
@@ -126,4 +125,4 @@ def start(callback, args, workerseed, rank, comm):
                     pickle.dump(totalmeans, fp)
         total_rewbuffer.append(gmean_final)
         total_rew = np.mean(total_rewbuffer)
-        learner.add_total_info(x,real_goal,total_rew,gmean_final,sub_rate_final)
+        #learner.add_total_info(x,real_goal,total_rew,gmean_final,sub_rate_final)
