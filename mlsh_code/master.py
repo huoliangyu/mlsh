@@ -28,6 +28,7 @@ def start(callback, args, workerseed, rank, comm):
     num_rollouts = args.num_rollouts
     warmup_time = args.warmup_time
     train_time = args.train_time
+    test_time = 1
 
     num_batches = 15
     index = 1
@@ -51,7 +52,7 @@ def start(callback, args, workerseed, rank, comm):
     # learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, savename,logdir, clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=1000)
     learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, savename,logdir,clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-5, optim_batchsize=64)
     
-    rollout = rollouts.traj_segment_generator(policy, sub_policies, env, macro_duration, num_rollouts, stochastic=True, args=args)
+    rollout = rollouts.traj_segment_generator(policy, sub_policies, env, macro_duration, num_rollouts, stochastic=True, test_steps=warmup_time+train_time, args=args)
     
     logger_loss_name = ["mini_ep","glo_rew","loc_rew","sub_rate","time"]
     start_time = time.time()
@@ -81,7 +82,7 @@ def start(callback, args, workerseed, rank, comm):
 
         totalmeans = []
         logger.log(fmt_row(10, logger_loss_name))
-        while mini_ep < warmup_time+train_time:
+        while mini_ep < warmup_time+train_time+test_time:
             mini_ep += 1
             
             running_time = time.time()-start_time
@@ -90,12 +91,16 @@ def start(callback, args, workerseed, rank, comm):
             rolls = rollout.__next__()
             allrolls = []
             allrolls.append(rolls)
+            if mini_ep==warmup_time+train_time+test_time:
+                is_test = True
+            else:
+                is_test = False
             # train theta
             rollouts.add_advantage_macro(rolls, macro_duration, 0.99, 0.98)
-            gmean, lmean,sub_rate = learner.updateMasterPolicy(rolls)
+            gmean, lmean,sub_rate = learner.updateMasterPolicy(rolls,is_test)
             # train phi
             test_seg = rollouts.prepare_allrolls(allrolls, macro_duration, 0.99, 0.98, num_subpolicies=num_subs)
-            learner.updateSubPolicies(test_seg, num_batches, (mini_ep >= warmup_time))
+            learner.updateSubPolicies(test_seg, num_batches, (mini_ep >= warmup_time)and(is_test is False))
             
             gmean_final=gmean
             sub_rate_final =sub_rate

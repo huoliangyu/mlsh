@@ -88,7 +88,7 @@ class Learner:
         for i in range(self.num_subpolicies):
             self.adams[i].sync()
 
-    def updateMasterPolicy(self, seg):
+    def updateMasterPolicy(self, seg,is_test = False):
         ob, ac, atarg, tdlamret = seg["macro_ob"], seg["macro_ac"], seg["macro_adv"], seg["macro_tdlamret"]
         # ob = np.ones_like(ob)
         mean = atarg.mean()
@@ -114,7 +114,8 @@ class Learner:
         for _ in range(self.optim_epochs):
             for batch in d.iterate_once(optim_batchsize):
                 g = self.master_loss(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"])
-                self.master_adam.update(g, 0.01, 1)
+                if not is_test:
+                    self.master_adam.update(g, 0.01, 1)
                 num_of_sub = self.add_num_ac(num_of_sub,batch["ac"])
 
         lrlocal = (seg["ep_lens"], seg["ep_rets"]) # local values

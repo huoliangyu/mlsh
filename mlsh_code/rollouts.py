@@ -4,7 +4,7 @@ import time
 
 is_use_randombaseline= False
 
-def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic, args):
+def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic, test_steps,args):
     replay = args.replay
     t = 0
     ac = env.action_space.sample()
@@ -20,6 +20,8 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
     ep_rets = []
     ep_lens = []
 
+    mini_ep = 0
+    is_test = False
     # Initialize history arrays
     obs = np.array([ob for _ in range(horizon)])
     rews = np.zeros(horizon, 'float32')
@@ -39,15 +41,22 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
     is_request = True
     while True:
         if t % macrolen == 0:
-            cur_subpolicy, macro_vpred = pi.act(stochastic, ob)
-
-            if np.random.uniform() < 0.1:
+            if is_test:
+                cur_subpolicy, macro_vpred = pi.act(False, ob)
+            else:
+                cur_subpolicy, macro_vpred = pi.act(stochastic, ob)
+            
+            if np.random.uniform() < 0.1 and is_test is False:
                 cur_subpolicy = np.random.randint(0, len(sub_policies))
             if args.force_subpolicy is not None:
                 cur_subpolicy = args.force_subpolicy
                 z += 1
 
-        ac, vpred = sub_policies[cur_subpolicy].act(stochastic, ob)
+        if is_test:
+            ac, vpred = sub_policies[cur_subpolicy].act(False, ob)
+            
+        else:
+            ac, vpred = sub_policies[cur_subpolicy].act(stochastic, ob)
 
         if is_use_randombaseline:
             ac = np.random.randint(0,9)
@@ -63,7 +72,13 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
             ep_rets = []
             ep_lens = []
             x += 1
-
+            mini_ep+=1
+            if mini_ep==test_steps:
+                is_test = True
+            else:
+                is_test=False
+            if mini_ep == test_steps+1:
+                mini_ep = 0
         i = t % horizon
         obs[i] = ob
         vpreds[i] = vpred
