@@ -56,13 +56,13 @@ LOGDIR = osp.join('/root/results' if sys.platform.startswith('linux') else '/tmp
 #         fname = osp.join("savedir/"+args.savename+"/checkpoints/", str(args.continue_iter))
 #         U.load_state(fname)
 #         pass
-def callback(it,savename =args.savename, var_list=None):
+def callback(it,savename =args.savename, var_list=None,restore=False,savedir = "./savedir",save=True,continue_iter = 0):
     if MPI.COMM_WORLD.Get_rank()==0:
-        if it % 1 == 0 and it > 20 and not replay :
-            fname = osp.join("./savedir/{}".format(savename), 'checkpoints', '%.5i'%it)
+        if it % 20 == 0 and it > 20 and not replay and save:
+            fname = osp.join("{}/{}".format(savedir,savename), 'checkpoints', '%.5i'%it)
             U.save_state(fname,var_list)
-    if it == 0 and args.continue_iter is not None and restore:    
-        fname = osp.join("./savedir/{}".format(args.savename)+"/checkpoints/", str(args.continue_iter))
+    if it == 0 and restore:    
+        fname = osp.join("{}/{}".format(savedir,savename)+"/checkpoints/", str(continue_iter))
         U.load_state(fname)
 
 def train():

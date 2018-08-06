@@ -3,7 +3,7 @@ import math
 import time
 
 is_use_randombaseline= False
-
+is_use_test = False
 def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic, test_steps,args):
     replay = args.replay
     t = 0
@@ -19,6 +19,19 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
     cur_ep_len = 0
     ep_rets = []
     ep_lens = []
+
+    cur_ep_ssim = 0
+    cur_ep_jitter = 0
+    cur_ep_rebuffing = 0
+    cur_ep_freeze = 0
+    cur_ep_creal = 0
+    cur_ep_buffer = 0
+    ep_ssims = []
+    ep_jitters=[]
+    ep_rebuffings = []
+    ep_freezes = []
+    ep_creals = []
+    ep_buffers = []
 
     mini_ep = 0
     is_test = False
@@ -41,18 +54,22 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
     is_request = True
     while True:
         if t % macrolen == 0:
-            if is_test:
+            if is_test and is_use_test:
                 cur_subpolicy, macro_vpred = pi.act(False, ob)
             else:
                 cur_subpolicy, macro_vpred = pi.act(stochastic, ob)
             
-            if np.random.uniform() < 0.1 and is_test is False:
-                cur_subpolicy = np.random.randint(0, len(sub_policies))
+            if is_use_test:
+                if np.random.uniform() < 0.1 and is_test is False:
+                    cur_subpolicy = np.random.randint(0, len(sub_policies))
+            else:
+                if np.random.uniform() < 0.1 :
+                    cur_subpolicy = np.random.randint(0, len(sub_policies))
             if args.force_subpolicy is not None:
                 cur_subpolicy = args.force_subpolicy
                 z += 1
 
-        if is_test:
+        if is_test and is_use_test:
             ac, vpred = sub_policies[cur_subpolicy].act(False, ob)
             
         else:
@@ -67,10 +84,16 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
             # tt += 1
             # print(total)
             # total = [0,0]
-            dicti = {"ob" : obs, "rew" : rews, "vpred" : vpreds, "new" : news, "ac" : acs, "ep_rets" : ep_rets, "ep_lens" : ep_lens, "macro_ac" : macro_acs, "macro_vpred" : macro_vpreds}
+            dicti = {"ob" : obs, "rew" : rews, "vpred" : vpreds, "new" : news, "ac" : acs, "ep_rets" : ep_rets, "ep_lens" : ep_lens, "macro_ac" : macro_acs, "macro_vpred" : macro_vpreds,"ep_ssims":ep_ssims,"ep_jitters":ep_jitters,"ep_rebuffings":ep_rebuffings,"ep_freezes":ep_freezes,"ep_creals":ep_creals,"ep_buffers":ep_buffers}
             yield {key: np.copy(val) for key,val in dicti.items()}
             ep_rets = []
             ep_lens = []
+            ep_ssims = []
+            ep_jitters = []
+            ep_rebuffings=[]
+            ep_freezes = []
+            ep_creals = []
+            ep_buffers = []
             x += 1
             mini_ep+=1 #times, start from 1
             if mini_ep==test_steps:
@@ -112,12 +135,36 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
 
         cur_ep_ret += rew
         cur_ep_len += 1
+
+        cur_ep_ssim += info["ssim"]
+        cur_ep_jitter += info["jitter"]
+        cur_ep_rebuffing += info["rebuf_time"]
+        # print ("cur rebuf is {}".format(info["rebuf_time"]))
+        cur_ep_freeze +=info["freeze"]
+        cur_ep_creal += info["c_real"]
+        # print ("creal is {}".format(info["c_real"]))
+        cur_ep_buffer += info["buffer"]
+
         if new and ((t+1) % macrolen == 0):
         # if new:
             ep_rets.append(cur_ep_ret)
             ep_lens.append(cur_ep_len)
             cur_ep_ret = 0
             cur_ep_len = 0
+
+            ep_ssims.append(cur_ep_ssim)
+            ep_jitters.append(cur_ep_jitter)
+            ep_rebuffings.append(cur_ep_rebuffing)
+            ep_freezes.append(cur_ep_freeze)
+            ep_creals.append(cur_ep_creal)
+            ep_buffers.append(cur_ep_buffer)
+            cur_ep_ssim = 0
+            cur_ep_jitter = 0
+            cur_ep_rebuffing = 0
+            cur_ep_freeze = 0
+            cur_ep_creal = 0
+            cur_ep_buffer = 0
+
             ob = env.reset()
         t += 1
 

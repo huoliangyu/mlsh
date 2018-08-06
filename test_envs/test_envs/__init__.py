@@ -27,3 +27,9 @@ register(
     timestep_limit=100,
     reward_threshold = 1,
 )
+
+register(
+    id='DashMeta-v0',
+    entry_point='test_envs.envs:DashMeta',
+    timestep_limit=3000,
+)
