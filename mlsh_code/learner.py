@@ -10,7 +10,7 @@ from collections import deque
 from dataset import Dataset
 
 class Learner:
-    def __init__(self, env, policy, old_policy, sub_policies, old_sub_policies, comm, clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=64):
+    def __init__(self, env, policy, old_policy, sub_policies, old_sub_policies, comm, savename,logdir,clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=64):
         self.policy = policy
         self.clip_param = clip_param
         self.entcoeff = entcoeff
@@ -19,6 +19,9 @@ class Learner:
         self.optim_batchsize = optim_batchsize
         self.num_subpolicies = len(sub_policies)
         self.sub_policies = sub_policies
+        self.savename = savename
+        self.logdir = logdir
+
         ob_space = env.observation_space
         ac_space = env.action_space
 
@@ -57,6 +60,8 @@ class Learner:
         self.master_adam.sync()
         for i in range(self.num_subpolicies):
             self.adams[i].sync()
+        
+        self.add_master_record()
 
     def nograd(self, var_list):
         return tf.concat(axis=0, values=[
@@ -104,17 +109,24 @@ class Learner:
         self.policy.ob_rms.update(ob) # update running mean/std for policy
 
         self.assign_old_eq_new()
+
+        num_of_sub=[0 for _ in range(self.num_subpolicies)]
+
         for _ in range(self.optim_epochs):
             for batch in d.iterate_once(optim_batchsize):
                 g = self.master_loss(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"])
                 self.master_adam.update(g, 0.01, 1)
+
+                num_of_sub = self.add_num_ac(num_of_sub,batch["ac"])
 
         lrlocal = (seg["ep_lens"], seg["ep_rets"]) # local values
         listoflrpairs = MPI.COMM_WORLD.allgather(lrlocal) # list of tuples
         lens, rews = map(flatten_lists, zip(*listoflrpairs))
         logger.record_tabular("EpRewMean", np.mean(rews))
 
-        return np.mean(rews), np.mean(seg["ep_rets"])
+        sub_rate = self.sub_rate(num_of_sub)
+
+        return np.mean(rews), np.mean(seg["ep_rets"]),sub_rate
 
     def updateSubPolicies(self, test_segs, num_batches, optimize=True):
         for i in range(self.num_subpolicies):
@@ -145,5 +157,28 @@ class Learner:
                     for _ in range(num_batches):
                         self.adams[i].update(blank, self.optim_stepsize, 0)
 
+    def add_num_ac(self,num_of_sub,batch):
+        for x in range(self.num_subpolicies):
+            num_of_sub[x] += np.sum(batch==x)
+        return num_of_sub
+    def sub_rate(self,num_of_sub):
+        rate = ""
+        for x in num_of_sub:
+            rate += "{}:".format(x)
+        return rate[:len(rate)-1]
+    
+    def add_master_record(self):
+        with open(self.logdir+"/master.txt","w") as f:
+            f.write("iteration\tgoal\ttotal_reward\tcur_reward\tsub_rate\n")
+        num_task = self.num_subpolicies
+        for x in range(num_task):
+             with open(self.logdir+"/task_{}.txt".format(x),"w") as f:
+                 f.write("iter\treward\tsubrate\n")
+    
+    def add_total_info(self,it,real_goal,rew_total,rew_cur,sub_rate):
+        with open(self.logdir+"/master.txt","a") as f:
+            f.write("{}\t{}\t{}\t{}\t{}\n".format(it,real_goal, rew_total,rew_cur,sub_rate))
+        with open(self.logdir+"/task_{}.txt".format(real_goal),"a") as f:
+            f.write("{}\t{}\t{}\n".format(it,rew_cur,sub_rate))     
 def flatten_lists(listoflists):
     return [el for list_ in listoflists for el in list_]
