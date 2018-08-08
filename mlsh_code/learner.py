@@ -19,6 +19,7 @@ class Learner:
         self.optim_batchsize = optim_batchsize
         self.num_subpolicies = len(sub_policies)
         self.sub_policies = sub_policies
+        self.num_task = self.num_subpolicies
         self.savename = savename
         self.logdir = logdir
 
@@ -168,14 +169,31 @@ class Learner:
         return rate[:len(rate)-1]
     
     def add_master_record(self):
+        # add to summary
+        self.total_rew_list = [tf.placeholder(dtype=tf.float32, shape=[],name = "total_reward_task_{}".format(x)) for x in range(self.num_task)]
+        self.cur_rew_list   = [tf.placeholder(dtype=tf.float32, shape=[],name = "current_reward_task_{}".format(x)) for x in range(self.num_task)]
+        for index, total_rew in enumerate(self.total_rew_list):
+            tf.summary.scalar("Total-Rew-Task-{}".format(index), total_rew,collections=["task_{}".format(index)])
+            # tf.summary.scalar("Total-Rew-Task-{}".format(index), total_rew)
+        for index, cur_rew in enumerate(self.cur_rew_list):
+            tf.summary.scalar("Cur-Rew-Task-{}".format(index), cur_rew,collections=["task_{}".format(index)])
+        self.tf_writer = tf.summary.FileWriter(self.logdir + '/tb')    
+        # add to file    
         with open(self.logdir+"/master.txt","w") as f:
             f.write("iteration\tgoal\ttotal_reward\tcur_reward\tsub_rate\n")
-        num_task = self.num_subpolicies
-        for x in range(num_task):
+        for x in range(self.num_task):
              with open(self.logdir+"/task_{}.txt".format(x),"w") as f:
                  f.write("iter\treward\tsubrate\n")
     
     def add_total_info(self,it,real_goal,rew_total,rew_cur,sub_rate):
+        #write to summary
+        merge_op=tf.summary.merge_all(key="task_{}".format(real_goal))
+        total_rew_placeholder = self.total_rew_list[real_goal]
+        cur_rew_placeholder   = self.cur_rew_list[real_goal]
+        summary = tf.get_default_session().run([merge_op],feed_dict={total_rew_placeholder:rew_total,cur_rew_placeholder:rew_cur})[0]
+        self.tf_writer.add_summary(summary,it )
+        self.tf_writer.flush()
+        #wirite to file
         with open(self.logdir+"/master.txt","a") as f:
             f.write("{}\t{}\t{}\t{}\t{}\n".format(it,real_goal, rew_total,rew_cur,sub_rate))
         with open(self.logdir+"/task_{}.txt".format(real_goal),"a") as f:
