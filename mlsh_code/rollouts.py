@@ -22,6 +22,7 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
     obs = np.array([ob for _ in range(horizon)])
     rews = np.zeros(horizon, 'float32')
     vpreds = np.zeros(horizon, 'float32')
+    ref_vpreds = np.zeros(horizon, 'float32')
     news = np.zeros(horizon, 'int32')
     acs = np.array([ac for _ in range(horizon)])
     macro_acs = np.zeros(macro_horizon, 'int32')
@@ -46,6 +47,7 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
                 z += 1
 
         ac, vpred = sub_policies[cur_subpolicy].act(stochastic, ob)
+        _,ref_vpred = sub_policies[1-cur_subpolicy].act(stochastic, ob)
         # if np.random.uniform(0,1) < 0.05:
             # ac = env.action_space.sample()
 
@@ -53,7 +55,7 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
             # tt += 1
             # print(total)
             # total = [0,0]
-            dicti = {"ob" : obs, "rew" : rews, "vpred" : vpreds, "new" : news, "ac" : acs, "ep_rets" : ep_rets, "ep_lens" : ep_lens, "macro_ac" : macro_acs, "macro_vpred" : macro_vpreds}
+            dicti = {"ob" : obs, "rew" : rews, "vpred" : vpreds, "new" : news, "ac" : acs, "ep_rets" : ep_rets, "ep_lens" : ep_lens, "macro_ac" : macro_acs, "macro_vpred" : macro_vpreds,"ref_vpred":ref_vpreds}
             yield {key: np.copy(val) for key,val in dicti.items()}
             ep_rets = []
             ep_lens = []
@@ -62,6 +64,7 @@ def traj_segment_generator(pi, sub_policies, env, macrolen, horizon, stochastic,
         i = t % horizon
         obs[i] = ob
         vpreds[i] = vpred
+        ref_vpreds[i] = ref_vpred
         news[i] = new
         acs[i] = ac
         if t % macrolen == 0:
@@ -125,6 +128,18 @@ def prepare_allrolls(allrolls, macrolen, gamma, lam, num_subpolicies):
         gaelam[t] = lastgaelam = delta + gamma * lam * nonterminal * lastgaelam
     test_seg["tdlamret"] = test_seg["adv"] + test_seg["vpred"]
 
+    #calculate reference advatages for second derivative
+    ref_vpred = np.append(test_seg["ref_vpred"], 0)
+    ref_T = len(test_seg["rew"])
+    test_seg["ref_adv"] = ref_gaelam = np.empty(ref_T, 'float32')
+    rew = test_seg["rew"]
+    ref_lastgaelam = 0
+    for t in reversed(range(ref_T)):
+        ref_nonterminal = 1-new[t+1]
+        ref_delta = rew[t] + gamma * ref_vpred[t+1] * ref_nonterminal - ref_vpred[t]
+        ref_gaelam[t] = ref_lastgaelam = ref_delta + gamma * lam * ref_nonterminal * ref_lastgaelam
+    test_seg["ref_tdlamret"] = test_seg["ref_adv"] + test_seg["ref_vpred"]
+    
     split_test = split_segments(test_seg, macrolen, num_subpolicies)
     return split_test
 
@@ -139,8 +154,10 @@ def split_segments(seg, macrolen, num_subpolicies):
         obs = np.array([seg["ob"][0] for _ in range(subpol_counts[i])])
         advs = np.zeros(subpol_counts[i], 'float32')
         tdlams = np.zeros(subpol_counts[i], 'float32')
+        ref_advs = np.zeros(subpol_counts[i], 'float32')
+        ref_tdlams = np.zeros(subpol_counts[i], 'float32')
         acs = np.array([seg["ac"][0] for _ in range(subpol_counts[i])])
-        subpols.append({"ob": obs, "adv": advs, "tdlamret": tdlams, "ac": acs})
+        subpols.append({"ob": obs, "adv": advs,"ref_adv":ref_advs, "tdlamret": tdlams,"ref_tdlamret":ref_tdlams, "ac": acs})
     subpol_counts = []
     for i in range(num_subpolicies):
         subpol_counts.append(0)
@@ -149,6 +166,8 @@ def split_segments(seg, macrolen, num_subpolicies):
         subpols[mac]["ob"][subpol_counts[mac]] = seg["ob"][i]
         subpols[mac]["adv"][subpol_counts[mac]] = seg["adv"][i]
         subpols[mac]["tdlamret"][subpol_counts[mac]] = seg["tdlamret"][i]
+        subpols[mac]["ref_adv"][subpol_counts[mac]] = seg["ref_adv"][i]
+        subpols[mac]["ref_tdlamret"][subpol_counts[mac]] = seg["ref_tdlamret"][i]
         subpols[mac]["ac"][subpol_counts[mac]] = seg["ac"][i]
         subpol_counts[mac] += 1
     return subpols
