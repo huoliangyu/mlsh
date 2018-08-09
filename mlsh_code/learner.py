@@ -32,6 +32,8 @@ class Learner:
         ac = policy.pdtype.sample_placeholder([None])
         atarg = tf.placeholder(dtype=tf.float32, shape=[None]) # Target advantage function (if applicable)
         ret = tf.placeholder(dtype=tf.float32, shape=[None]) # Empirical return
+        ref_atarg = tf.placeholder(dtype=tf.float32, shape=[None]) 
+        ref_ret = tf.placeholder(dtype=tf.float32, shape=[None])
         total_loss = self.policy_loss(policy, old_policy, ob, ac, atarg, ret, clip_param)
         self.master_policy_var_list = policy.get_trainable_variables()
         self.master_loss = U.function([ob, ac, atarg, ret], U.flatgrad(total_loss, self.master_policy_var_list))
@@ -44,6 +46,7 @@ class Learner:
         self.change_subs = []
         self.adams = []
         self.losses = []
+        self.dcos_losses = []
         self.sp_ac = sub_policies[0].pdtype.sample_placeholder([None])
         for i in range(self.num_subpolicies):
             varlist = sub_policies[i].get_trainable_variables()
@@ -52,6 +55,11 @@ class Learner:
             loss = self.policy_loss(sub_policies[i], old_sub_policies[i], ob, self.sp_ac, atarg, ret, clip_param)
             self.losses.append(U.function([ob, self.sp_ac, atarg, ret], U.flatgrad(loss, varlist)))
 
+            #loss for second derivate
+            dcos_loss =  self.get_dcos_loss(sub_policies,old_sub_policies,i,self.num_subpolicies,loss,ob, self.sp_ac,ref_atarg,ref_ret,clip_param)
+            dcos_loss_fun =U.function([ob, self.sp_ac, atarg, ret,ref_atarg,ref_ret], [U.flatgrad(dcos_loss, varlist),dcos_loss])
+            self.dcos_losses.append(dcos_loss_fun)
+            # need to excute for ref_subpolicy ......
             self.assign_subs.append(U.function([],[], updates=[tf.assign(oldv, newv)
                 for (oldv, newv) in zipsame(old_sub_policies[i].get_variables(), sub_policies[i].get_variables())]))
             self.zerograd = U.function([], self.nograd(varlist))
@@ -82,7 +90,21 @@ class Learner:
         vf_loss = .5 * U.mean(tf.maximum(vfloss1, vfloss2))
         total_loss = pol_surr + vf_loss
         return total_loss
-
+    def get_dcos_loss(self,sub_policies,old_sub_policies,i,num_subpolicies,cur_loss,ob, ac,ref_atarg,ref_ret,clip_param):
+        #compute ref_loss
+        ref_loss = self.policy_loss(sub_policies[1-i],old_sub_policies[1-i],ob,ac,ref_atarg,ref_ret,clip_param)
+        # g_{\theta_cur}
+        cur_var_list = sub_policies[i].get_trainable_variables()
+        cur_grad = U.flatgrad(cur_loss, cur_var_list)
+        # g_{\theta_ref}
+        ref_var_list =  sub_policies[1-i].get_trainable_variables()
+        ref_grad = U.flatgrad(ref_loss, ref_var_list)
+        #dcos
+        dot = tf.reduce_sum(tf.multiply(cur_grad, ref_grad))
+        mag = tf.norm(cur_grad) * tf.norm(ref_grad)
+        
+        dcos = dot / mag
+        return dcos
     def syncMasterPolicies(self):
         self.master_adam.sync()
 
