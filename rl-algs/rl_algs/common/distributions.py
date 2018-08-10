@@ -128,7 +128,10 @@ class CategoricalPd(Pd):
     def mode(self):
         return U.argmax(self.logits, axis=1)
     def neglogp(self, x):
-        return tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=x)
+        # return tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=x)
+        one_hot_actions = tf.one_hot(x, self.logits.get_shape().as_list()[-1])
+        return tf.nn.softmax_cross_entropy_with_logits(logits=self.logits,
+            labels=one_hot_actions)
     def kl(self, other):
         a0 = self.logits - U.max(self.logits, axis=1, keepdims=True)
         a1 = other.logits - U.max(other.logits, axis=1, keepdims=True)

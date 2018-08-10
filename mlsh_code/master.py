@@ -36,7 +36,7 @@ def start(callback, args, workerseed, rank, comm):
     num_batches = 15
 
     index = 1
-    saveinfo = "test"
+    saveinfo = "add sec der and update"
     savename = "env_{}_subs_{}_warmup_{}_train_{}_T_{}_info_{}_index_{}".format(args.task,num_subs,args.warmup_time,args.train_time,args.macro_duration, saveinfo,index)
     logdir = "./savedir/{}".format(savename)
     

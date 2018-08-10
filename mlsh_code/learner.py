@@ -156,22 +156,30 @@ class Learner:
             is_optimizing = True
             test_seg = test_segs[i]
             ob, ac, atarg, tdlamret = test_seg["ob"], test_seg["ac"], test_seg["adv"], test_seg["tdlamret"]
+            ref_atarg,ref_tdlamret = test_seg["ref_adv"],test_seg["ref_tdlamret"]
             if np.shape(ob)[0] < 1:
                 is_optimizing = False
             else:
                 atarg = (atarg - atarg.mean()) / max(atarg.std(), 0.000001)
-            test_d = Dataset(dict(ob=ob, ac=ac, atarg=atarg, vtarg=tdlamret), shuffle=True)
+                ref_atarg = (ref_atarg-ref_atarg.mean())/max(ref_atarg.std(),0.000001)
+            test_d = Dataset(dict(ob=ob, ac=ac, atarg=atarg, vtarg=tdlamret,ref_atarg = ref_atarg,ref_vtarg=ref_tdlamret), shuffle=True)
             test_batchsize = int(ob.shape[0] / num_batches)
 
-            self.assign_subs[i]() # set old parameter values to new parameter values
+            for j in range(self.num_subpolicies):
+                self.assign_subs[j]()
+            # self.assign_subs[i]() # set old parameter values to new parameter values
             # Here we do a bunch of optimization epochs over the data
             if self.optim_batchsize > 0 and is_optimizing and optimize:
-                self.sub_policies[i].ob_rms.update(ob)
+                for j in range(self.num_subpolicies):
+                    self.sub_policies[j].ob_rms.update(ob)
                 for k in range(self.optim_epochs):
                     m = 0
                     for test_batch in test_d.iterate_times(test_batchsize, num_batches):
                         test_g = self.losses[i](test_batch["ob"], test_batch["ac"], test_batch["atarg"], test_batch["vtarg"])
-                        self.adams[i].update(test_g, self.optim_stepsize, 1)
+                        dcos_grad,dcos = self.dcos_losses[i](test_batch["ob"], test_batch["ac"], test_batch["atarg"], test_batch["vtarg"],test_batch["ref_atarg"], test_batch["ref_vtarg"])
+                        dcos_weight = 0
+                        total_grad = test_g+dcos_weight*dcos_grad
+                        self.adams[i].update(total_grad, self.optim_stepsize, 1)
                         m += 1
             else:
                 self.sub_policies[i].ob_rms.noupdate()
