@@ -8,7 +8,7 @@ from rl_algs.common.mpi_adam import MpiAdam
 from mpi4py import MPI
 from collections import deque
 from dataset import Dataset
-
+from master import sec_der_weight
 class Learner:
     def __init__(self, env, policy, old_policy, sub_policies, old_sub_policies, comm, savename,logdir,clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-4, optim_batchsize=64):
         self.policy = policy
@@ -152,6 +152,7 @@ class Learner:
         return np.mean(rews), np.mean(seg["ep_rets"]),sub_rate
 
     def updateSubPolicies(self, test_segs, num_batches, optimize=True):
+        logger_sub_dcos_list=[]
         for i in range(self.num_subpolicies):
             is_optimizing = True
             test_seg = test_segs[i]
@@ -177,7 +178,8 @@ class Learner:
                     for test_batch in test_d.iterate_times(test_batchsize, num_batches):
                         test_g = self.losses[i](test_batch["ob"], test_batch["ac"], test_batch["atarg"], test_batch["vtarg"])
                         dcos_grad,dcos = self.dcos_losses[i](test_batch["ob"], test_batch["ac"], test_batch["atarg"], test_batch["vtarg"],test_batch["ref_atarg"], test_batch["ref_vtarg"])
-                        dcos_weight = 0
+                        logger_sub_dcos_list.append(dcos)
+                        dcos_weight = sec_der_weight
                         total_grad = test_g+dcos_weight*dcos_grad
                         self.adams[i].update(total_grad, self.optim_stepsize, 1)
                         m += 1
@@ -187,7 +189,11 @@ class Learner:
                 for _ in range(self.optim_epochs):
                     for _ in range(num_batches):
                         self.adams[i].update(blank, self.optim_stepsize, 0)
-
+        
+        lrlocal = (np.array(logger_sub_dcos_list),np.array([1,1])) # local values
+        listoflrpairs = MPI.COMM_WORLD.allgather(lrlocal) # list of tuples
+        dcos,_ = map(flatten_lists, zip(*listoflrpairs))
+        return np.mean(dcos), np.mean(np.array(logger_sub_dcos_list))
     def add_num_ac(self,num_of_sub,batch):
         for x in range(self.num_subpolicies):
             num_of_sub[x] += np.sum(batch==x)
@@ -202,31 +208,41 @@ class Learner:
         # add to summary
         self.total_rew_list = [tf.placeholder(dtype=tf.float32, shape=[],name = "total_reward_task_{}".format(x)) for x in range(self.num_task)]
         self.cur_rew_list   = [tf.placeholder(dtype=tf.float32, shape=[],name = "current_reward_task_{}".format(x)) for x in range(self.num_task)]
+        self.total_dcos_list = [tf.placeholder(dtype=tf.float32, shape=[],name = "total_dcos_task_{}".format(x)) for x in range(self.num_task)]
+        self.cur_dcos_list   = [tf.placeholder(dtype=tf.float32, shape=[],name = "current_dcos_task_{}".format(x)) for x in range(self.num_task)]
+        
         for index, total_rew in enumerate(self.total_rew_list):
             tf.summary.scalar("Total-Rew-Task-{}".format(index), total_rew,collections=["task_{}".format(index)])
             # tf.summary.scalar("Total-Rew-Task-{}".format(index), total_rew)
         for index, cur_rew in enumerate(self.cur_rew_list):
             tf.summary.scalar("Cur-Rew-Task-{}".format(index), cur_rew,collections=["task_{}".format(index)])
+        for index, total_dcos in enumerate(self.total_dcos_list):
+            tf.summary.scalar("Total-Dcos-Task-{}".format(index), total_dcos,collections=["task_{}".format(index)])
+            # tf.summary.scalar("Total-Rew-Task-{}".format(index), total_rew)
+        for index, cur_dcos in enumerate(self.cur_dcos_list):
+            tf.summary.scalar("Cur-Dcos-Task-{}".format(index), cur_dcos,collections=["task_{}".format(index)])
         self.tf_writer = tf.summary.FileWriter(self.logdir + '/tb')    
         # add to file    
         with open(self.logdir+"/master.txt","w") as f:
-            f.write("iteration\tgoal\ttotal_reward\tcur_reward\tsub_rate\n")
+            f.write("iteration\tgoal\ttotal_reward\tcur_reward\ttotal_dcos\tcur_dcos\tsub_rate\n")
         for x in range(self.num_task):
              with open(self.logdir+"/task_{}.txt".format(x),"w") as f:
-                 f.write("iter\treward\tsubrate\n")
+                 f.write("iter\ttotal_reward\tcur_reward\ttotal_dcos\tcur_dcos\tsubrate\n")
     
-    def add_total_info(self,it,real_goal,rew_total,rew_cur,sub_rate):
+    def add_total_info(self,it,real_goal,rew_total,rew_cur,dcos_total,dcos_cur,sub_rate):
         #write to summary
         merge_op=tf.summary.merge_all(key="task_{}".format(real_goal))
         total_rew_placeholder = self.total_rew_list[real_goal]
         cur_rew_placeholder   = self.cur_rew_list[real_goal]
-        summary = tf.get_default_session().run([merge_op],feed_dict={total_rew_placeholder:rew_total,cur_rew_placeholder:rew_cur})[0]
+        total_dcos_placeholder = self.total_dcos_list[real_goal]
+        cur_dcos_placeholder   = self.cur_dcos_list[real_goal]
+        summary = tf.get_default_session().run([merge_op],feed_dict={total_rew_placeholder:rew_total,cur_rew_placeholder:rew_cur,total_dcos_placeholder:dcos_total,cur_dcos_placeholder:dcos_cur})[0]
         self.tf_writer.add_summary(summary,it )
         self.tf_writer.flush()
         #wirite to file
         with open(self.logdir+"/master.txt","a") as f:
-            f.write("{}\t{}\t{}\t{}\t{}\n".format(it,real_goal, rew_total,rew_cur,sub_rate))
+            f.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(it,real_goal, rew_total,rew_cur,dcos_total,dcos_cur,sub_rate))
         with open(self.logdir+"/task_{}.txt".format(real_goal),"a") as f:
-            f.write("{}\t{}\t{}\n".format(it,rew_cur,sub_rate))     
+            f.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(it,rew_total,rew_cur,dcos_total,dcos_cur,sub_rate))     
 def flatten_lists(listoflists):
     return [el for list_ in listoflists for el in list_]

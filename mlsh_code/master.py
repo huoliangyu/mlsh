@@ -2,6 +2,7 @@ import gym
 import test_envs
 import tensorflow as tf
 import rollouts
+sec_der_weight = -0.0001
 from policy_network import Policy
 from subpolicy_network import SubPolicy
 from observation_network import Features
@@ -36,8 +37,8 @@ def start(callback, args, workerseed, rank, comm):
     num_batches = 15
 
     index = 1
-    saveinfo = "add sec der and update"
-    savename = "env_{}_subs_{}_warmup_{}_train_{}_T_{}_info_{}_index_{}".format(args.task,num_subs,args.warmup_time,args.train_time,args.macro_duration, saveinfo,index)
+    saveinfo = "sec der"
+    savename = "env_{}_subs_{}_warmup_{}_train_{}_T_{}_weight_{}_info_{}_index_{}".format(args.task,num_subs,args.warmup_time,args.train_time,args.macro_duration, sec_der_weight,saveinfo,index)
     logdir = "./savedir/{}".format(savename)
     
     if os.path.exists(logdir):
@@ -58,11 +59,12 @@ def start(callback, args, workerseed, rank, comm):
     learner = Learner(env, policy, old_policy, sub_policies, old_sub_policies, comm, savename,logdir,clip_param=0.2, entcoeff=0, optim_epochs=10, optim_stepsize=3e-5, optim_batchsize=64)
     rollout = rollouts.traj_segment_generator(policy, sub_policies, env, macro_duration, num_rollouts, stochastic=True, args=args)
 
-    logger_loss_name = ["mini_ep","glo_rew","loc_rew","sub_rate","time"]
+    logger_loss_name = ["mini_ep","glo_rew","loc_rew","glo_dcos","loc_dcos","sub_rate","time"]
     start_time = time.time()
     num_task = num_subs
     real_goal = 0
     total_rewbuffer = [deque() for _ in range(num_task)]
+    total_dcosbuffer = [deque() for _ in range(num_task)]
     if is_restore:
         # restore_name_list = []# sub-3 in the first and 2nd and 1st
         restore_name = "env_DashMeta-v0_subs_3_warmup_20_train_40_T_20_info_ToSaveModel_index_3"
@@ -111,18 +113,22 @@ def start(callback, args, workerseed, rank, comm):
             gmean, lmean,sub_rate = learner.updateMasterPolicy(rolls)
             # train phi
             test_seg = rollouts.prepare_allrolls(allrolls, macro_duration, 0.99, 0.98, num_subpolicies=num_subs)
-            learner.updateSubPolicies(test_seg, num_batches, (mini_ep >= warmup_time))
+            gdcos,ldcos = learner.updateSubPolicies(test_seg, num_batches, (mini_ep >= warmup_time))
             # learner.updateSubPolicies(test_seg,
             # log
             # print(("%d: global: %s, local: %s" % (mini_ep, gmean, lmean)))
             
-            logger_list =[mini_ep,gmean,lmean,sub_rate ,running_time]
+            logger_list =[mini_ep,gmean,lmean,gdcos,ldcos,sub_rate ,running_time]
             logger.log(fmt_row(10, logger_list))
 
             if args.s:
                 totalmeans.append(gmean)
                 with open('outfile'+str(x)+'.pickle', 'wb') as fp:
                     pickle.dump(totalmeans, fp)
-            total_rewbuffer[real_goal].append(gmean)
-            total_rew = np.mean(total_rewbuffer[real_goal])
-            learner.add_total_info(x*(warmup_time+train_time)+mini_ep-1,real_goal,total_rew,gmean,sub_rate)
+            if mini_ep==warmup_time+train_time:
+                total_rewbuffer[real_goal].append(gmean)
+                total_rew = np.mean(total_rewbuffer[real_goal])
+                total_dcosbuffer[real_goal].append(gdcos)
+                total_dcos= np.mean(total_dcosbuffer[real_goal])
+                # learner.add_total_info(x*(warmup_time+train_time)+mini_ep-1,real_goal,total_rew,gmean,total_dcos,gdcos,sub_rate)
+                learner.add_total_info(x,real_goal,total_rew,gmean,total_dcos,gdcos,sub_rate)
