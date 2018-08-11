@@ -2,7 +2,7 @@ import gym
 import test_envs
 import tensorflow as tf
 import rollouts
-sec_der_weight = -0.0001
+sec_der_weight = 0.00001
 from policy_network import Policy
 from subpolicy_network import SubPolicy
 from observation_network import Features
@@ -91,6 +91,11 @@ def start(callback, args, workerseed, rank, comm):
         env.env.randomizeCorrect()
         shared_goal = comm.bcast(env.env.realgoal, root=0)
         real_goal =env.env.realgoal = shared_goal
+        if real_goal.shape[0]==2:
+            if real_goal[0]==0:
+                real_goal = 0
+            else:
+                real_goal = 1
 
         # print("It is iteration %d so i'm changing the goal to %s" % (x, env.env.realgoal))
         logger.log("It is iteration %d so i'm changing the goal to %s" % (x, env.env.realgoal))

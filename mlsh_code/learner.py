@@ -101,7 +101,7 @@ class Learner:
         ref_grad = U.flatgrad(ref_loss, ref_var_list)
         #dcos
         dot = tf.reduce_sum(tf.multiply(cur_grad, ref_grad))
-        mag = tf.norm(cur_grad) * tf.norm(ref_grad)
+        mag = tf.norm(cur_grad) * tf.norm(ref_grad)+1e-9
         
         dcos = dot / mag
         return dcos
