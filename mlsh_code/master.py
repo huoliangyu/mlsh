@@ -2,7 +2,7 @@ import gym
 import test_envs
 import tensorflow as tf
 import rollouts
-sec_der_weight = 0.00001
+sec_der_weight = 1
 from policy_network import Policy
 from subpolicy_network import SubPolicy
 from observation_network import Features
@@ -130,10 +130,10 @@ def start(callback, args, workerseed, rank, comm):
                 totalmeans.append(gmean)
                 with open('outfile'+str(x)+'.pickle', 'wb') as fp:
                     pickle.dump(totalmeans, fp)
-            if mini_ep==warmup_time+train_time:
+            if mini_ep>=warmup_time+train_time:
                 total_rewbuffer[real_goal].append(gmean)
                 total_rew = np.mean(total_rewbuffer[real_goal])
                 total_dcosbuffer[real_goal].append(gdcos)
                 total_dcos= np.mean(total_dcosbuffer[real_goal])
                 # learner.add_total_info(x*(warmup_time+train_time)+mini_ep-1,real_goal,total_rew,gmean,total_dcos,gdcos,sub_rate)
-                learner.add_total_info(x,real_goal,total_rew,gmean,total_dcos,gdcos,sub_rate)
+                learner.add_total_info(x*train_time+mini_ep-1-warmup_time,real_goal,total_rew,gmean,total_dcos,gdcos,sub_rate)
