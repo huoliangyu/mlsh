@@ -1,0 +1,12 @@
+rm rl-algs/rl_algs/__pycache__/__init__.cpython-35.pyc
+rm rl-algs/rl_algs/__pycache__/logger.cpython-35.pyc
+rm rl-algs/rl_algs/common/__pycache__/__init__.cpython-35.pyc
+rm rl-algs/rl_algs/common/__pycache__/console_util.cpython-35.pyc
+rm rl-algs/rl_algs/common/__pycache__/dataset.cpython-35.pyc
+rm rl-algs/rl_algs/common/__pycache__/distributions.cpython-35.pyc
+rm rl-algs/rl_algs/common/__pycache__/math_util.cpython-35.pyc
+rm rl-algs/rl_algs/common/__pycache__/misc_util.cpython-35.pyc
+rm rl-algs/rl_algs/common/__pycache__/mpi_adam.cpython-35.pyc
+rm rl-algs/rl_algs/common/__pycache__/mpi_running_mean_std.cpython-35.pyc
+rm rl-algs/rl_algs/common/__pycache__/tf_util.cpython-35.pyc
+rm rl-algs/rl_algs/common/__pycache__/tf_util.cpython-35.pyc
