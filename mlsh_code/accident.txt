@@ -1,0 +1,6 @@
+dcos is nan!
+test_g grad is <class 'numpy.ndarray'>:(2758,):[0. 0. 0. ... 0. 0. 0.]
+dcos_grad is <class 'numpy.ndarray'>:(2758,):[nan nan nan ... nan nan nan]
+dcos_weight is 0
+total_grad is <class 'numpy.ndarray'>:(2758,):[nan nan nan ... nan nan nan]
+dcos is 0.0

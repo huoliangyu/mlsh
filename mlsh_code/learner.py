@@ -181,6 +181,15 @@ class Learner:
                         logger_sub_dcos_list.append(dcos)
                         dcos_weight = sec_der_weight
                         total_grad = test_g+dcos_weight*dcos_grad
+                        if not (total_grad == test_g).all():
+                            with open("accident.txt","w") as f:
+                                f.write("dcos is nan!\n")
+                                f.write("test_g grad is {}:{}:{}\n".format(type(test_g),test_g.shape ,test_g))
+                                f.write("dcos_grad is {}:{}:{}\n".format(type(dcos_grad),dcos_grad.shape,dcos_grad))
+                                f.write("dcos_weight is {}\n".format(dcos_weight))
+                                f.write("total_grad is {}:{}:{}\n".format(type(total_grad),total_grad.shape,total_grad))
+                                f.write("dcos is {}\n".format(dcos))
+                                raise Exception("dcos nan:", dcos) 
                         self.adams[i].update(total_grad, self.optim_stepsize, 1)
                         m += 1
             else:
