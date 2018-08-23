@@ -47,6 +47,7 @@ class Learner:
         self.adams = []
         self.losses = []
         self.dcos_losses = []
+        self.dcos_losses_debug = []
         self.sp_ac = sub_policies[0].pdtype.sample_placeholder([None])
         for i in range(self.num_subpolicies):
             varlist = sub_policies[i].get_trainable_variables()
@@ -59,6 +60,13 @@ class Learner:
             dcos_loss =  self.get_dcos_loss(sub_policies,old_sub_policies,i,self.num_subpolicies,loss,ob, self.sp_ac,ref_atarg,ref_ret,clip_param)
             dcos_loss_fun =U.function([ob, self.sp_ac, atarg, ret,ref_atarg,ref_ret], [U.flatgrad(dcos_loss, varlist),dcos_loss])
             self.dcos_losses.append(dcos_loss_fun)
+            
+            # loss for debug
+            # self.accident_file = "./accident.txt"
+            dcos_debug,cur_loss_debug,ref_loss_debug,cur_grad_debug,ref_grad_debug,dot_debug,mag_debug,multiply_debug =  self.get_dcos_loss_debug(sub_policies,old_sub_policies,i,self.num_subpolicies,loss,ob, self.sp_ac,ref_atarg,ref_ret,clip_param)
+            dcos_loss_fun_debug =U.function([ob, self.sp_ac, atarg, ret,ref_atarg,ref_ret], [dcos_debug,cur_loss_debug,ref_loss_debug,cur_grad_debug,ref_grad_debug,dot_debug,mag_debug,multiply_debug])
+            self.dcos_losses_debug.append(dcos_loss_fun_debug)
+            
             # need to excute for ref_subpolicy ......
             self.assign_subs.append(U.function([],[], updates=[tf.assign(oldv, newv)
                 for (oldv, newv) in zipsame(old_sub_policies[i].get_variables(), sub_policies[i].get_variables())]))
@@ -105,6 +113,23 @@ class Learner:
         
         dcos = dot / mag
         return dcos
+    
+    def get_dcos_loss_debug(self,sub_policies,old_sub_policies,i,num_subpolicies,cur_loss,ob, ac,ref_atarg,ref_ret,clip_param):
+        #compute ref_loss
+        ref_loss = self.policy_loss(sub_policies[1-i],old_sub_policies[1-i],ob,ac,ref_atarg,ref_ret,clip_param)
+        # g_{\theta_cur}
+        cur_var_list = sub_policies[i].get_trainable_variables()
+        cur_grad = U.flatgrad(cur_loss, cur_var_list)
+        # g_{\theta_ref}
+        ref_var_list =  sub_policies[1-i].get_trainable_variables()
+        ref_grad = U.flatgrad(ref_loss, ref_var_list)
+        #dcos
+        dot = tf.reduce_sum(tf.multiply(cur_grad, ref_grad))
+        mag = tf.norm(cur_grad) * tf.norm(ref_grad)+1e-9
+        
+        dcos = dot / mag
+       
+        return dcos,cur_loss,ref_loss,cur_grad,ref_grad,dot,mag,tf.multiply(cur_grad, ref_grad)
     def syncMasterPolicies(self):
         self.master_adam.sync()
 
@@ -182,6 +207,7 @@ class Learner:
                         dcos_weight = sec_der_weight
                         total_grad = test_g+dcos_weight*dcos_grad
                         if not (total_grad == test_g).all():
+                            dcos_debug,cur_loss_debug,ref_loss_debug,cur_grad_debug,ref_grad_debug,dot_debug,mag_debug,multiply_debug=self.dcos_losses_debug[i](test_batch["ob"], test_batch["ac"], test_batch["atarg"], test_batch["vtarg"],test_batch["ref_atarg"], test_batch["ref_vtarg"])
                             with open("accident.txt","w") as f:
                                 f.write("dcos is nan!\n")
                                 f.write("test_g grad is {}:{}:{}\n".format(type(test_g),test_g.shape ,test_g))
@@ -189,6 +215,13 @@ class Learner:
                                 f.write("dcos_weight is {}\n".format(dcos_weight))
                                 f.write("total_grad is {}:{}:{}\n".format(type(total_grad),total_grad.shape,total_grad))
                                 f.write("dcos is {}\n".format(dcos))
+                                f.write("cur_loss_debug is {}\n".format(cur_loss_debug))
+                                f.write("ref_loss_debug is {}\n".format(ref_loss_debug))
+                                f.write("cur_grad_debug is {}\n".format(cur_grad_debug))
+                                f.write("ref_grad_debug is {}\n".format(ref_grad_debug))
+                                f.write("mag_debug is {}\n".format(mag_debug))
+                                f.write("dot_debug is {}\n".format(dot_debug))
+                                f.write("multiply_debug is {}\n".format(multiply_debug))
                                 raise Exception("dcos nan:", dcos) 
                         self.adams[i].update(total_grad, self.optim_stepsize, 1)
                         m += 1
