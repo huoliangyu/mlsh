@@ -57,14 +57,14 @@ class Learner:
             self.losses.append(U.function([ob, self.sp_ac, atarg, ret], U.flatgrad(loss, varlist)))
 
             #loss for second derivate
-            dcos_loss =  self.get_dcos_loss(sub_policies,old_sub_policies,i,self.num_subpolicies,loss,ob, self.sp_ac,ref_atarg,ref_ret,clip_param)
+            dcos_loss =  self.get_dcos_loss(sub_policies,old_sub_policies,i,self.num_subpolicies,loss,ob, self.sp_ac,atarg,ret,ref_atarg,ref_ret,clip_param)
             dcos_loss_fun =U.function([ob, self.sp_ac, atarg, ret,ref_atarg,ref_ret], [U.flatgrad(dcos_loss, varlist),dcos_loss])
             self.dcos_losses.append(dcos_loss_fun)
             
             # loss for debug
             # self.accident_file = "./accident.txt"
-            dcos_debug,cur_loss_debug,ref_loss_debug,cur_grad_debug,ref_grad_debug,dot_debug,mag_debug,multiply_debug =  self.get_dcos_loss_debug(sub_policies,old_sub_policies,i,self.num_subpolicies,loss,ob, self.sp_ac,ref_atarg,ref_ret,clip_param)
-            dcos_loss_fun_debug =U.function([ob, self.sp_ac, atarg, ret,ref_atarg,ref_ret], [dcos_debug,cur_loss_debug,ref_loss_debug,cur_grad_debug,ref_grad_debug,dot_debug,mag_debug,multiply_debug])
+            dcos_debug,cur_loss_debug,ref_loss_debug,cur_grad_debug,ref_grad_debug,dot_debug,mag_debug,multiply_debug,original_loss_debug=  self.get_dcos_loss_debug(sub_policies,old_sub_policies,i,self.num_subpolicies,loss,ob, self.sp_ac,atarg,ret,ref_atarg,ref_ret,clip_param)
+            dcos_loss_fun_debug =U.function([ob, self.sp_ac, atarg, ret,ref_atarg,ref_ret], [dcos_debug,cur_loss_debug,ref_loss_debug,cur_grad_debug,ref_grad_debug,dot_debug,mag_debug,multiply_debug,original_loss_debug])
             self.dcos_losses_debug.append(dcos_loss_fun_debug)
             
             # need to excute for ref_subpolicy ......
@@ -98,8 +98,9 @@ class Learner:
         vf_loss = .5 * U.mean(tf.maximum(vfloss1, vfloss2))
         total_loss = pol_surr + vf_loss
         return total_loss
-    def get_dcos_loss(self,sub_policies,old_sub_policies,i,num_subpolicies,cur_loss,ob, ac,ref_atarg,ref_ret,clip_param):
-        #compute ref_loss
+    def get_dcos_loss(self,sub_policies,old_sub_policies,i,num_subpolicies,original_loss,ob, ac,atarg,ret,ref_atarg,ref_ret,clip_param):
+        #compute cur_loss and ref_loss
+        cur_loss = self.policy_loss(sub_policies[i],old_sub_policies[i],ob,ac,atarg,ret,clip_param)
         ref_loss = self.policy_loss(sub_policies[1-i],old_sub_policies[1-i],ob,ac,ref_atarg,ref_ret,clip_param)
         # g_{\theta_cur}
         cur_var_list = sub_policies[i].get_trainable_variables()
@@ -114,8 +115,9 @@ class Learner:
         dcos = dot / mag
         return dcos
     
-    def get_dcos_loss_debug(self,sub_policies,old_sub_policies,i,num_subpolicies,cur_loss,ob, ac,ref_atarg,ref_ret,clip_param):
-        #compute ref_loss
+    def get_dcos_loss_debug(self,sub_policies,old_sub_policies,i,num_subpolicies,original_loss,ob, ac,atarg,ret,ref_atarg,ref_ret,clip_param):
+        #compute cur_loss and ref_loss
+        cur_loss = self.policy_loss(sub_policies[i],old_sub_policies[i],ob,ac,atarg,ret,clip_param)
         ref_loss = self.policy_loss(sub_policies[1-i],old_sub_policies[1-i],ob,ac,ref_atarg,ref_ret,clip_param)
         # g_{\theta_cur}
         cur_var_list = sub_policies[i].get_trainable_variables()
@@ -129,7 +131,7 @@ class Learner:
         
         dcos = dot / mag
        
-        return dcos,cur_loss,ref_loss,cur_grad,ref_grad,dot,mag,tf.multiply(cur_grad, ref_grad)
+        return dcos,cur_loss,ref_loss,cur_grad,ref_grad,dot,mag,tf.multiply(cur_grad, ref_grad),original_loss
     def syncMasterPolicies(self):
         self.master_adam.sync()
 
@@ -177,6 +179,7 @@ class Learner:
         return np.mean(rews), np.mean(seg["ep_rets"]),sub_rate
 
     def updateSubPolicies(self, test_segs, num_batches, optimize=True):
+        is_nan = False
         logger_sub_dcos_list=[]
         for i in range(self.num_subpolicies):
             is_optimizing = True
@@ -205,9 +208,11 @@ class Learner:
                         dcos_grad,dcos = self.dcos_losses[i](test_batch["ob"], test_batch["ac"], test_batch["atarg"], test_batch["vtarg"],test_batch["ref_atarg"], test_batch["ref_vtarg"])
                         logger_sub_dcos_list.append(dcos)
                         dcos_weight = sec_der_weight
+                        dcos_grad[np.isnan(dcos_grad)] = 0
                         total_grad = test_g+dcos_weight*dcos_grad
-                        if not (total_grad == test_g).all():
-                            dcos_debug,cur_loss_debug,ref_loss_debug,cur_grad_debug,ref_grad_debug,dot_debug,mag_debug,multiply_debug=self.dcos_losses_debug[i](test_batch["ob"], test_batch["ac"], test_batch["atarg"], test_batch["vtarg"],test_batch["ref_atarg"], test_batch["ref_vtarg"])
+                        # if not (total_grad == test_g).all():
+                        if np.isnan(total_grad).any():
+                            dcos_debug,cur_loss_debug,ref_loss_debug,cur_grad_debug,ref_grad_debug,dot_debug,mag_debug,multiply_debug,original_loss_debug=self.dcos_losses_debug[i](test_batch["ob"], test_batch["ac"], test_batch["atarg"], test_batch["vtarg"],test_batch["ref_atarg"], test_batch["ref_vtarg"])
                             with open("accident.txt","w") as f:
                                 f.write("dcos is nan!\n")
                                 f.write("test_g grad is {}:{}:{}\n".format(type(test_g),test_g.shape ,test_g))
@@ -222,7 +227,16 @@ class Learner:
                                 f.write("mag_debug is {}\n".format(mag_debug))
                                 f.write("dot_debug is {}\n".format(dot_debug))
                                 f.write("multiply_debug is {}\n".format(multiply_debug))
-                                raise Exception("dcos nan:", dcos) 
+                                f.write("original_loss_debug is {}\n".format(original_loss_debug))
+                                # f.write("ref_var_list_debug is {}\n".format(ref_var_list_debug))
+                                f.write("test_batch[ob] is {}\n".format(test_batch["ob"]))
+                                f.write("test_batch[ac] is {}\n".format(test_batch["ac"]))
+                                f.write("test_batch[atarg] is {}\n".format(test_batch["atarg"]))
+                                f.write("test_batch[vtarg] is {}\n".format(test_batch["vtarg"]))
+                                
+                                # raise Exception("dcos nan:", dcos)
+                                is_nan = True
+                                return dcos, dcos,is_nan
                         self.adams[i].update(total_grad, self.optim_stepsize, 1)
                         m += 1
             else:
@@ -235,7 +249,7 @@ class Learner:
         lrlocal = (np.array(logger_sub_dcos_list),np.array([1,1])) # local values
         listoflrpairs = MPI.COMM_WORLD.allgather(lrlocal) # list of tuples
         dcos,_ = map(flatten_lists, zip(*listoflrpairs))
-        return np.mean(dcos), np.mean(np.array(logger_sub_dcos_list))
+        return np.mean(dcos), np.mean(np.array(logger_sub_dcos_list)),is_nan
     def add_num_ac(self,num_of_sub,batch):
         for x in range(self.num_subpolicies):
             num_of_sub[x] += np.sum(batch==x)

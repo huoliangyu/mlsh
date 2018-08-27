@@ -55,19 +55,23 @@ LOGDIR = osp.join('/root/results' if sys.platform.startswith('linux') else '/tmp
 #         fname = osp.join("savedir/"+args.savename+"/checkpoints/", str(args.continue_iter))
 #         U.load_state(fname)
 #         pass
-def callback(it,savename =args.savename, var_list=None,restore=False,savedir = "./savedir",save=True,continue_iter = 0):
+def callback(it,savename =args.savename, var_list=None,restore=False,savedir = "./savedir",save=True,continue_iter = 0,force_save=False):
     if MPI.COMM_WORLD.Get_rank()==0:
-        if it % 5 == 0 and it > 3 and not replay:
-            fname = osp.join("savedir/", 'checkpoints', '%.5i'%it)
-            U.save_state(fname)
-        if it == 0 and args.continue_iter is not None:
-            fname = osp.join("savedir/"+args.savename+"/checkpoints/", str(args.continue_iter))
-            if it % 20 == 0 and it > 20 and not replay and save:
-                fname = osp.join("{}/{}".format(savedir,savename), 'checkpoints', '%.5i'%it)
-                U.save_state(fname,var_list)
-            if it == 0 and restore:
-                fname = osp.join("{}/{}".format(savedir,savename)+"/checkpoints/", str(continue_iter))
-                U.load_state(fname)
+        # # if it % 5 == 0 and it > 3 and not replay:
+        # if not replay:
+        #     fname = osp.join("savedir/", 'checkpoints', '%.5i'%it)
+        #     U.save_state(fname)
+        # if it == 0 and args.continue_iter is not None:
+        #     fname = osp.join("savedir/"+args.savename+"/checkpoints/", str(args.continue_iter))
+        if force_save:
+            fname = osp.join("{}/{}".format(savedir,savename), 'checkpoints', '%.5i'%it)
+            U.save_state(fname,var_list) 
+        elif it % 20 == 0 and it > 20 and not replay and save and not restore:
+            fname = osp.join("{}/{}".format(savedir,savename), 'checkpoints', '%.5i'%it)
+            U.save_state(fname,var_list)
+    if it == 0 and restore:
+        fname = osp.join("{}/{}".format(savedir,savename)+"/checkpoints/", str(continue_iter))
+        U.load_state(fname)
 
 
 def train():

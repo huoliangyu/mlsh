@@ -2,7 +2,7 @@ import gym
 import test_envs
 import tensorflow as tf
 import rollouts
-sec_der_weight = 0
+sec_der_weight = 1
 from policy_network import Policy
 from subpolicy_network import SubPolicy
 from observation_network import Features
@@ -19,6 +19,7 @@ import time
 from collections import deque
 
 is_restore = False
+
 is_save = True
 
 def start(callback, args, workerseed, rank, comm):
@@ -37,7 +38,7 @@ def start(callback, args, workerseed, rank, comm):
     num_batches = 15
 
     index = 1
-    saveinfo = "sec der"
+    saveinfo = "sec_der"
     savename = "env_{}_subs_{}_warmup_{}_train_{}_T_{}_weight_{}_info_{}_index_{}".format(args.task,num_subs,args.warmup_time,args.train_time,args.macro_duration, sec_der_weight,saveinfo,index)
     logdir = "./savedir/{}".format(savename)
     
@@ -67,8 +68,8 @@ def start(callback, args, workerseed, rank, comm):
     total_dcosbuffer = [deque() for _ in range(num_task)]
     if is_restore:
         # restore_name_list = []# sub-3 in the first and 2nd and 1st
-        restore_name = "env_DashMeta-v0_subs_3_warmup_20_train_40_T_20_info_ToSaveModel_index_3"
-        continue_iter = '03208'
+        restore_name = "env_MovementBandits-v0_subs_2_warmup_9_train_1_T_10_weight_0_info_sec_der_index_1"
+        continue_iter = '00719'
         for i in range(num_subs):
             varlist = sub_policies[i].get_trainable_variables()
             callback(0,restore_name,var_list=varlist,restore=True,save=is_save,continue_iter=continue_iter)
@@ -121,7 +122,10 @@ def start(callback, args, workerseed, rank, comm):
             gmean, lmean,sub_rate = learner.updateMasterPolicy(rolls)
             # train phi
             test_seg = rollouts.prepare_allrolls(allrolls, macro_duration, 0.99, 0.98, num_subpolicies=num_subs)
-            gdcos,ldcos = learner.updateSubPolicies(test_seg, num_batches, (mini_ep >= warmup_time))
+            gdcos,ldcos,is_nan = learner.updateSubPolicies(test_seg, num_batches, (mini_ep >= warmup_time))
+            if is_nan:
+                callback(x,savename,save=True,force_save=True)
+                raise Exception("dcos nan:", gdcos)
             # learner.updateSubPolicies(test_seg,
             # log
             # print(("%d: global: %s, local: %s" % (mini_ep, gmean, lmean)))
