@@ -38,8 +38,8 @@ def start(callback, args, workerseed, rank, comm):
     num_batches = 15
 
     index = 1
-    saveinfo = "sec_der"
-    savename = "env_{}_subs_{}_warmup_{}_train_{}_T_{}_weight_{}_info_{}_index_{}".format(args.task,num_subs,args.warmup_time,args.train_time,args.macro_duration, sec_der_weight,saveinfo,index)
+    saveinfo = "whynotwork"
+    savename = "env_{}_subs_{}_warmup_{}_train_{}_T_{}_weight_{}_seed_{}_info_{}_index_{}".format(args.task,num_subs,args.warmup_time,args.train_time,args.macro_duration, sec_der_weight,args.seed,saveinfo,index)
     logdir = "./savedir/{}".format(savename)
     
     if os.path.exists(logdir):
@@ -143,4 +143,5 @@ def start(callback, args, workerseed, rank, comm):
                 total_dcosbuffer[real_goal].append(gdcos)
                 total_dcos= np.mean(total_dcosbuffer[real_goal])
                 # learner.add_total_info(x*(warmup_time+train_time)+mini_ep-1,real_goal,total_rew,gmean,total_dcos,gdcos,sub_rate)
-                learner.add_total_info(x*train_time+mini_ep-1-warmup_time,real_goal,total_rew,gmean,total_dcos,gdcos,sub_rate)
+                # learner.add_total_info(x*train_time+mini_ep-1-warmup_time,real_goal,total_rew,gmean,total_dcos,gdcos,sub_rate)
+                learner.add_total_info(x,real_goal,total_rew,gmean,total_dcos,gdcos,sub_rate)

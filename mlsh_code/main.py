@@ -13,6 +13,7 @@ parser.add_argument('--replay', type=str)
 parser.add_argument('-s', action='store_true')
 parser.add_argument('--continue_iter', type=str)
 parser.add_argument('--restore',default = "False",type=str)
+parser.add_argument('--seed', default = 1401,type=int)
 args = parser.parse_args()
 
 # python main.py --task MovementBandits-v0 --num_subs 2 --macro_duration 10 --num_rollouts 1000 --warmup_time 60 --train_time 1 --replay True test
@@ -76,7 +77,8 @@ def callback(it,savename =args.savename, var_list=None,restore=False,savedir = "
 
 def train():
     num_timesteps=1e9
-    seed = 1401
+    seed = args.seed
+    # seed = 1401
     rank = MPI.COMM_WORLD.Get_rank()
     sess = U.single_threaded_session()
     sess.__enter__()

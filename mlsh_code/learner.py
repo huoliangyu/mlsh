@@ -113,7 +113,7 @@ class Learner:
         mag = tf.norm(cur_grad) * tf.norm(ref_grad)+1e-9
         
         dcos = dot / mag
-        return dcos
+        return tf.norm(dcos)
     
     def get_dcos_loss_debug(self,sub_policies,old_sub_policies,i,num_subpolicies,original_loss,ob, ac,atarg,ret,ref_atarg,ref_ret,clip_param):
         #compute cur_loss and ref_loss
