@@ -2,7 +2,7 @@ import gym
 import test_envs
 import tensorflow as tf
 import rollouts
-sec_der_weight = 0
+sec_der_weight = 10
 from policy_network import Policy
 from subpolicy_network import SubPolicy
 from observation_network import Features
